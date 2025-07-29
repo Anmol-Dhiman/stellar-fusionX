@@ -9,9 +9,16 @@ import "./EscrowFactory.sol";
 contract DutchAuction is Ownable {
     mapping(bytes32 => IOrder.Order) public s_orders;
 
+    // @dev relayer contract address
     address public s_relayer;
+
+    // @dev maximum time for an auction to run in which the price decreases linearly
     uint256 public constant MAX_AUCTION_TIME = 10 minutes;
+
+    // @dev buffer between auction start and order place time
     uint256 public constant AUCTION_START_BUFFER = 2 minutes;
+
+    // @dev escrow factory contract
     EscrowFactory public s_escrowFactory;
 
     modifier onlyRelayer() {
@@ -27,9 +34,15 @@ contract DutchAuction is Ownable {
         _;
     }
 
+    /*
+     * @params _escrowFactory EscrowFactory contract address
+     * @notice while deploying DutchAuction contract owner will set */
     constructor(address _escrowFactory) Ownable(msg.sender) {
         s_escrowFactory = EscrowFactory(_escrowFactory);
     }
+
+    /*
+     *@dev set the order details */
     function startAuction(
         IOrder.OrderInput memory orderInput
     ) external onlyRelayer {
@@ -48,6 +61,9 @@ contract DutchAuction is Ownable {
         });
     }
 
+    /*
+     * @dev relayer fill the order and deploy
+     * EscrowSrc + deposit security + move maker tokens from relayer to EscrowSrc deployed */
     function fillOrder(bytes32 _orderId) external payable onlyRelayer {
         IOrder.Order storage order = s_orders[_orderId];
         require(

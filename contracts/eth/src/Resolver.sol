@@ -24,10 +24,15 @@ contract Resolver is Ownable {
         s_escrowFactory = EscrowFactory(_escrowFactory);
     }
 
+    /*
+     * @dev fill order i.e. deploy EscrowSrc + move funds from relayer to deployed EscrowSrc
+     * + deposit security + set the amountOut in DutchAuction contract */
     function deploySrc(bytes32 _orderId) external payable onlyOwner {
         s_dutchAuction.fillOrder{value: msg.value}(_orderId);
     }
 
+    /*
+     * @dev deploy the EscrowDest + deposit security + trasnfer amountOut set on stellar */
     function deployDest(
         bytes32 orderId,
         address token,
@@ -60,6 +65,10 @@ contract Resolver is Ownable {
         escrow.publicCancel();
     }
 
+    /*
+     * @dev notify relayer to check escrowSrc and escrowDest implementation
+     * check for amountOut specified in dutchAuction on respective chain
+     * and check escrowSrc have the required tokens or not */
     function notifyRelayer(
         bytes32 escrowSrc,
         bytes32 escrowDest,
