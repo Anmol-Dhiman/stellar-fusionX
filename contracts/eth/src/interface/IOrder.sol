@@ -3,11 +3,7 @@ pragma solidity ^0.8.30;
 
 
 interface IOrder {
-    enum OrderStatus {
-        Pending,
-        Complete,
-        Canceled
-    }
+    
     enum Path {
         ETHToStellar,
         StellarToETH
@@ -21,7 +17,6 @@ interface IOrder {
         uint256 amountOut;
         uint256 minAmountOut;
         uint256 maxAmountOut;
-        OrderStatus status;
         address resolverAssigned;
         Path path;
         uint32 startTime;

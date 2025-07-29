@@ -15,25 +15,25 @@ contract Relayer is Ownable {
         address resolver
     );
 
-    mapping(address => bool) private s_relayers;
+    mapping(address => bool) private s_resolvers;
     DutchAuction public s_dutchAuction;
 
     constructor(address _dutchAuction) Ownable(msg.sender) {
         s_dutchAuction = DutchAuction(_dutchAuction);
     }
 
-    function addRelayer(address _relayer) external onlyOwner {
+    function addResolver(address _relayer) external onlyOwner {
         require(_relayer != address(0), "Invalid address");
-        s_relayers[_relayer] = true;
+        s_resolvers[_relayer] = true;
     }
 
-    function removeRelayer(address _relayer) external onlyOwner {
+    function removeResolver(address _relayer) external onlyOwner {
         require(_relayer != address(0), "Invalid address");
-        s_relayers[_relayer] = false;
+        s_resolvers[_relayer] = false;
     }
 
-    function isRelayer(address _relayer) external view returns (bool) {
-        return s_relayers[_relayer];
+    function isResolver(address _relayer) external view returns (bool) {
+        return s_resolvers[_relayer];
     }
 
     function placeOrder(
@@ -41,9 +41,8 @@ contract Relayer is Ownable {
         uint8 v,
         bytes32 r,
         bytes32 s
-    ) external {
-        address tokenInAddress = address(uint160(uint256(orderInput.tokenIn)));
-        IERC20Permit(tokenInAddress).permit(
+    ) external onlyOwner {
+        IERC20Permit(address(uint160(uint256(orderInput.tokenIn)))).permit(
             orderInput.maker,
             address(this),
             orderInput.amountIn,
@@ -52,13 +51,17 @@ contract Relayer is Ownable {
             r,
             s
         );
-        IERC20(tokenInAddress).transferFrom(
-            orderInput.maker,
-            address(this),
-            orderInput.amountIn
-        );
-
         s_dutchAuction.startAuction(orderInput);
+    }
+
+    function moveTokensToEscrow(
+        address maker,
+        address token,
+        address srcEscrow,
+        uint256 amountIn
+    ) external {
+        require(msg.sender == address(s_dutchAuction), "Invalid call");
+        IERC20(token).transferFrom(maker, srcEscrow, amountIn);
     }
 
     /*
@@ -69,7 +72,7 @@ contract Relayer is Ownable {
         bytes32 escrowDest,
         bytes32 orderId
     ) external {
-        require(s_relayers[msg.sender], "Invalid signal call");
+        require(s_resolvers[msg.sender], "Invalid signal call");
         emit SignalSecretShare(escrowSrc, escrowDest, orderId, msg.sender);
     }
 }
