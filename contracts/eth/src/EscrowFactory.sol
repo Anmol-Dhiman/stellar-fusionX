@@ -3,8 +3,7 @@ pragma solidity ^0.8.30;
 
 import "./DutchAuction.sol";
 import "./Relayer.sol";
-import "./EscrowSrc.sol";
-import "./EscrowDest.sol";
+import {EscrowDest, EscrowSrc} from "./EscrowContracts.sol";
 
 contract EscrowFactory {
     DutchAuction public s_dutchAuction;
@@ -82,6 +81,8 @@ contract EscrowFactory {
                 maker
             )
         );
+        s_orderIdToEscrow[orderId] = escrowDest;
+        s_escrowToOrderId[escrowDest] = orderId;
         return escrowDest;
     }
 }
