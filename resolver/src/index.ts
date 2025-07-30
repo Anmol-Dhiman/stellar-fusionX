@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Receive new orders
-app.use('/new-order', newOrderRoutes);
+app.use('/order', newOrderRoutes);
 
 mongoose.connect(MONGO_URI)
   .then(() => {
