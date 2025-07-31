@@ -53,7 +53,6 @@ contract DutchAuction is Ownable {
             minAmountOut: orderInput.minAmountOut,
             maxAmountOut: orderInput.maxAmountOut,
             resolverAssigned: address(0),
-            path: orderInput.path,
             startTime: uint32(block.timestamp) + uint32(AUCTION_START_BUFFER),
             hashLock: orderInput.hashLock
         });
