@@ -1,14 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-
 interface IOrder {
-    
-    enum Path {
-        ETHToStellar,
-        StellarToETH
-    }
-
     struct Order {
         address maker;
         bytes32 tokenIn; // address on eth or stellar , convert address to bytes32 if eth-stellar swap
@@ -18,7 +11,6 @@ interface IOrder {
         uint256 minAmountOut;
         uint256 maxAmountOut;
         address resolverAssigned;
-        Path path;
         uint32 startTime;
         bytes32 hashLock;
     }
@@ -32,6 +24,5 @@ interface IOrder {
         uint256 minAmountOut;
         uint256 maxAmountOut;
         bytes32 hashLock;
-        Path path;
     }
 }

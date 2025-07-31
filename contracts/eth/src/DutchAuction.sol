@@ -37,9 +37,7 @@ contract DutchAuction is Ownable {
     /*
      * @params _escrowFactory EscrowFactory contract address
      * @notice while deploying DutchAuction contract owner will set */
-    constructor(address _escrowFactory) Ownable(msg.sender) {
-        s_escrowFactory = EscrowFactory(_escrowFactory);
-    }
+    constructor() Ownable(msg.sender) {}
 
     /*
      *@dev set the order details */
@@ -55,7 +53,6 @@ contract DutchAuction is Ownable {
             minAmountOut: orderInput.minAmountOut,
             maxAmountOut: orderInput.maxAmountOut,
             resolverAssigned: address(0),
-            path: orderInput.path,
             startTime: uint32(block.timestamp) + uint32(AUCTION_START_BUFFER),
             hashLock: orderInput.hashLock
         });
@@ -111,6 +108,10 @@ contract DutchAuction is Ownable {
 
     function setRelayer(address _relayer) external onlyOwner {
         s_relayer = _relayer;
+    }
+
+    function setEscrowFactory(address _escrowFactory) external onlyOwner {
+        s_escrowFactory = EscrowFactory(_escrowFactory);
     }
 
     function getHashLockByOrderId(
