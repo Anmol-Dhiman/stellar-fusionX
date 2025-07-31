@@ -34,3 +34,17 @@ Process Starts
 3. Relayer Dashboard
 4. Explorer
 5. Scripts to deploy relayer on cloud
+
+Ethereum --> Stellar
+Ethereum Side - LOP
+Stellar Side
+    1. Node Solver - Resolver Contract - deploy_dest() Security Amount and Token into the contract
+
+Stellar --> Ethereum
+Stellar
+    1. Maker --> WrappedTokens deposit(), create hash
+    1. Relayer Node Server - placeOrder() Order Details and Signature
+    2. Node Solver - Resolver Contract - deploy_src() Security Amount into the contract
+    3. Node Solver - Relayer Contract - signal_share_secret() Emits a log that Relayer node, signal to do checks
+    4. Maker - Relayer Node secret - broadcast
+    5. Resolver Node - withdraw() in Stellar and Ethereum

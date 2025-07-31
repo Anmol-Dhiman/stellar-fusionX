@@ -16,11 +16,11 @@ pub enum DataKey {
 impl WrappedTokens {
     pub fn permit(
         env: Env,
-        token: Address,
-        owner: Address,
-        spender: Address,
-        amount: u128,
-        public_key: BytesN<32>,
+        token: Address, // Mock token
+        owner: Address, // Alice
+        spender: Address, // Alice
+        amount: u128, // 
+        public_key: BytesN<32>, // Public address
         signature: BytesN<64>,
         hash: BytesN<32>,
     ) {
