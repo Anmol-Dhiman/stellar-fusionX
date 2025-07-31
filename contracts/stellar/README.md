@@ -1,7 +1,2 @@
-escrowFactory
-escrowSrc
-escrowDest
-dutch auction
-relayer
-resolver
-wrapper
+1. stellar contract build --package wrappedtoken
+2. stellar contract build --package mocktoken
