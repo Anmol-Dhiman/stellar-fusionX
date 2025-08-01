@@ -1,0 +1,10 @@
+{
+  "name": "stellar-testing",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.3.0",
+    "buffer": "^6.0.3"
+  }
+}

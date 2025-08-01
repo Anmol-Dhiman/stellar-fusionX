@@ -2,11 +2,11 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, BytesN, Env};
 
 mod relayer {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/relayer.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\relayer.wasm");
 }
 
 mod escrow_factory {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowfactory.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowfactory.wasm");
 }
 
 const MAX_AUCTION_TIME: u128 = 10 * 60; // 10 minutes in seconds
@@ -111,7 +111,7 @@ impl DutchAuction {
             &caller.clone(), //executive_resolver
             &env.current_contract_address().clone(),
         );
-        
+
         // move funds from relayer to escrow
         let relayer = relayer::Client::new(&env.clone(), &Self::get_relayer(env.clone()));
 
@@ -160,6 +160,7 @@ impl DutchAuction {
     pub fn get_relayer(env: Env) -> Address {
         env.storage().persistent().get(&DataKey::Relayer).unwrap()
     }
+
     pub fn get_escrow_factory(env: Env) -> Address {
         env.storage()
             .persistent()

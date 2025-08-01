@@ -42,9 +42,19 @@ Stellar Side
 
 Stellar --> Ethereum
 Stellar
-    1. Maker --> WrappedTokens deposit(), create hash
-    1. Relayer Node Server - placeOrder() Order Details and Signature
-    2. Node Solver - Resolver Contract - deploy_src() Security Amount into the contract
-    3. Node Solver - Relayer Contract - signal_share_secret() Emits a log that Relayer node, signal to do checks
-    4. Maker - Relayer Node secret - broadcast
-    5. Resolver Node - withdraw() in Stellar and Ethereum
+    `Pre-requisite`
+    1. Resolver Contract should be whitelisted in relayer contract - `add_resolver()` and the Relayer Node should have the webhook URL
+    2. Maker should mint some `MockTokens`, approve it for `WrappedToken` contract - `mint(), approve()`
+   
+   `During Swap`
+    1. [Maker] - Wrap the tokens and permit- `deposit(), permit()`
+    2. [Maker] - Calls the API in Relayer Node
+    3. [RelayerNode] - Order Details and Signature - `placeOrder()`
+    4. [RelayerNode] - Broadcast the order to ResolverNode Servers using webhook
+    5. [ResolverNode] - Calculates if profitable
+    6. [ResolverNode] - In the Resolver contract - `deploy_escrow_src()`
+    7. [ResolverNode] - Deploy Dest contract in Ethereum with Security deposit - `deployDest  .sol` with balance of tokenOut
+    8. [ResolverNode] - Relayer Contract - `notify_relayer()` Emits a log that Relayer node, signal to do checks
+    9. [Maker] - Calls the API in RelayerNode to broadcast
+    10. [ResolverNode] - `withdraw()` in Stellar and Ethereum `withdraw()`
+    11. Signal completion

@@ -6,11 +6,11 @@ use soroban_sdk::{
 };
 
 mod dutch_auction {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/dutchauction.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\dutchauction.wasm");
 }
 
 mod wrapped_tokens {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/wrappedtoken.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\wrappedtoken.wasm");
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,7 +30,6 @@ pub struct SignalSecretShare {
     pub resolver: Address,
 }
 
-
 #[derive(Clone)]
 #[contracttype]
 pub struct OrderInput {
@@ -43,8 +42,6 @@ pub struct OrderInput {
     pub maxAmountOut: u128,
     pub hashLock: BytesN<32>,
 }
-
-
 
 #[contract]
 pub struct Relayer;
@@ -88,10 +85,9 @@ impl Relayer {
         hash: BytesN<32>,
     ) {
         Self::only_owner(env.clone());
-        let token_in = Self::bytesn32_to_address(env.clone(), order_input.tokenIn.clone());
-        let _wrappedtoken = wrapped_tokens::Client::new(&env.clone(), &token_in);
+        let _wrappedtoken = wrapped_tokens::Client::new(&env.clone(), &order_input.tokenIn.clone());
         _wrappedtoken.permit(
-            &token_in,
+            &order_input.tokenIn.clone(),
             &order_input.maker.clone(),
             &env.current_contract_address(),
             &order_input.amountIn,
@@ -109,6 +105,7 @@ impl Relayer {
     fn bytesn32_to_address(env: Env, bytes: BytesN<32>) -> Address {
         Address::from_xdr(&env, &bytes.into()).unwrap()
     }
+
     pub fn move_tokens_to_escrow(
         env: Env,
         maker: Address,
