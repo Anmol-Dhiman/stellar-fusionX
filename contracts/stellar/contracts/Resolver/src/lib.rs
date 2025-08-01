@@ -1,207 +1,146 @@
-// #![no_std]
-// use soroban_sdk::{
-//     contract, contractimpl, Address, Bytes, Env, Vec, token, symbol_short
-// };
+#![no_std]
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env};
 
-// mod types;
-// use types::{DataKey, Error};
+mod dutch_auction {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/dutchauction.wasm");
+}
 
-// #[contract]
-// pub struct Resolver;
+mod escrow_factory {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowfactory.wasm");
+}
 
-// #[contractimpl]
-// impl Resolver {
-//     pub fn initialize(
-//         env: Env,
-//         owner: Address,
-//         dutch_auction: Address,
-//         relayer: Address,
-//         escrow_factory: Address,
-//     ) {
-//         env.storage().instance().set(&DataKey::Owner, &owner);
-//         env.storage().instance().set(&DataKey::DutchAuction, &dutch_auction);
-//         env.storage().instance().set(&DataKey::Relayer, &relayer);
-//         env.storage().instance().set(&DataKey::EscrowFactory, &escrow_factory);
-//     }
+mod relayer {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/relayer.wasm");
+}
 
-//     /// Fill order i.e. deploy EscrowSrc + move funds from relayer to deployed EscrowSrc
-//     /// + deposit security + set the amountOut in DutchAuction contract
-//     pub fn deploy_src(env: Env, order_id: Bytes, security_deposit: u128) -> Result<Address, Error> {
-//         let owner = env.storage().instance().get::<DataKey, Address>(&DataKey::Owner)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         owner.require_auth();
+mod escrow_src {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowsrc.wasm");
+    pub type EscrowSrcClient<'a> = Client<'a>;
+}
+use escrow_src::EscrowSrcClient;
 
-//         let dutch_auction = env.storage().instance().get::<DataKey, Address>(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)?;
+mod escrow_dest {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowdest.wasm");
+    pub type EscrowDestClient<'a> = Client<'a>;
+}
+use escrow_dest::EscrowDestClient;
 
-//         let escrow_src: Address = env.invoke_contract(
-//             &dutch_auction,
-//             &symbol_short!("fill_order"),
-//             (order_id, security_deposit).into(),
-//         );
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum DataKey {
+    Owner,         // owner address
+    EscrowFactory, // escrow factory address
+    Relayer,       // relayer contract address
+    DutchAuction,  // contract address
+}
 
-//         Ok(escrow_src)
-//     }
+#[contract]
+pub struct Resolver;
 
-//     /// Deploy the EscrowDest + deposit security + transfer amountOut set on stellar
-//     pub fn deploy_dest(
-//         env: Env,
-//         order_id: Bytes,
-//         token: Address,
-//         amount: u128,
-//         maker: Address,
-//         security_deposit: u128,
-//     ) -> Result<Address, Error> {
-//         let owner = env.storage().instance().get::<DataKey, Address>(&DataKey::Owner)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         owner.require_auth();
+#[contractimpl]
+impl Resolver {
+    pub fn initialize(
+        env: Env,
+        owner: Address,
+        escrow_factory: Address,
+        relayer: Address,
+        dutch_auction: Address,
+    ) {
+        env.storage().persistent().set(&DataKey::Owner, &owner);
+        env.storage()
+            .persistent()
+            .set(&DataKey::EscrowFactory, &escrow_factory);
+        env.storage().persistent().set(&DataKey::Relayer, &relayer);
+        env.storage()
+            .persistent()
+            .set(&DataKey::DutchAuction, &dutch_auction);
+    }
 
-//         let escrow_factory = env.storage().instance().get::<DataKey, Address>(&DataKey::EscrowFactory)
-//             .ok_or(Error::InvalidCall)?;
+    pub fn deploy_escrow_src(env: Env, caller: Address, order_id: BytesN<32>) {
+        Self::only_owner(env.clone());
+        let dutch_auction_contract =
+            dutch_auction::Client::new(&env.clone(), &Self::get_dutch_auction(env.clone()));
+        dutch_auction_contract.fillOrder(&caller.clone(), &order_id.clone());
+    }
 
-//         let escrow_dest: Address = env.invoke_contract(
-//             &escrow_factory,
-//             &symbol_short!("deploy_dest"),
-//             (order_id, token, amount, maker, security_deposit).into(),
-//         );
+    pub fn deploy_escrow_dest(
+        env: Env,
+        caller: Address,
+        order_id: BytesN<32>,
+        hash_lock: BytesN<32>,
+        token_out: Address,
+        amount_out: u128,
+        maker: Address,
+    ) {
+        Self::only_owner(env.clone());
+        let _escrow_factory =
+            escrow_factory::Client::new(&env.clone(), &Self::get_escrow_factory(env.clone()));
+        _escrow_factory.deploy_dest(
+            &order_id.clone(),
+            &hash_lock.clone(),
+            &token_out.clone(),
+            &amount_out.clone(),
+            &maker.clone(),
+            &caller.clone(), // executive_resolver
+        );
+    }
 
-//         // Transfer tokens to the escrow
-//         let token_client = token::Client::new(&env, &token);
-//         token_client.transfer_from(
-//             &env.current_contract_address(),
-//             &env.current_contract_address(), // In practice, this would be the actual caller
-//             &escrow_dest,
-//             &(amount as i128)
-//         );
+    pub fn withdraw(env: Env, escrow: Address, secret: BytesN<32>) {
+        let caller = env.current_contract_address();
+        let escrow = EscrowDestClient::new(&env, &escrow); // common function for both src and dest
+        escrow.withdraw(&secret, &caller);
+    }
+    pub fn public_withdraw(env: Env, escrow: Address, secret: BytesN<32>) {
+        let caller = env.current_contract_address();
+        let escrow = EscrowDestClient::new(&env, &escrow); // common function for both src and dest
+        escrow.public_withdraw(&secret, &caller);
+    }
+    pub fn cancel(env: Env, escrow: Address) {
+        let caller = env.current_contract_address();
+        let escrow = EscrowDestClient::new(&env, &escrow); // common function for both src and dest
+        escrow.cancel(&caller);
+    }
+    pub fn public_cancel(env: Env, escrow: Address) {
+        let caller = env.current_contract_address();
+        let escrow = EscrowSrcClient::new(&env, &escrow); // common function for both src and dest
+        escrow.public_cancel(&caller);
+    }
 
-//         Ok(escrow_dest)
-//     }
+    pub fn notify_relayer(
+        env: Env,
+        order_id: BytesN<32>,
+        escrow_src: BytesN<32>,
+        escrow_dest: BytesN<32>,
+        caller: Address,
+    ) {
+        Self::only_owner(env.clone());
+        let _relayer = relayer::Client::new(&env.clone(), &Self::get_relayer(env.clone()));
+        _relayer.signal_share_secret(&escrow_src, &escrow_dest, &order_id, &caller);
+    }
 
-//     pub fn withdraw(env: Env, escrow: Address, secret: Bytes) -> Result<(), Error> {
-//         let _: () = env.invoke_contract(
-//             &escrow,
-//             &symbol_short!("withdraw"),
-//             (secret,).into(),
-//         );
-//         Ok(())
-//     }
+    pub fn get_owner(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::Owner).unwrap()
+    }
 
-//     pub fn cancel(env: Env, escrow: Address) -> Result<(), Error> {
-//         let _: () = env.invoke_contract(
-//             &escrow,
-//             &symbol_short!("cancel"),
-//             ().into(),
-//         );
-//         Ok(())
-//     }
+    pub fn get_escrow_factory(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::EscrowFactory)
+            .unwrap()
+    }
+    pub fn get_relayer(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::Relayer).unwrap()
+    }
 
-//     pub fn public_withdraw(env: Env, escrow: Address, secret: Bytes) -> Result<(), Error> {
-//         let _: () = env.invoke_contract(
-//             &escrow,
-//             &symbol_short!("pub_withdraw"),
-//             (secret,).into(),
-//         );
-//         Ok(())
-//     }
+    fn only_owner(env: Env) {
+        let owner = Self::get_owner(env);
+        owner.require_auth();
+    }
 
-//     pub fn public_cancel(env: Env, escrow: Address) -> Result<(), Error> {
-//         let _: () = env.invoke_contract(
-//             &escrow,
-//             &symbol_short!("pub_cancel"),
-//             ().into(),
-//         );
-//         Ok(())
-//     }
-
-//     /// Notify relayer to check escrowSrc and escrowDest implementation
-//     /// check for amountOut specified in dutchAuction on respective chain
-//     /// and check escrowSrc have the required tokens or not
-//     pub fn notify_relayer(
-//         env: Env,
-//         escrow_src: Bytes,
-//         escrow_dest: Bytes,
-//         order_id: Bytes,
-//     ) -> Result<(), Error> {
-//         let owner = env.storage().instance().get::<DataKey, Address>(&DataKey::Owner)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         owner.require_auth();
-
-//         let relayer = env.storage().instance().get::<DataKey, Address>(&DataKey::Relayer)
-//             .ok_or(Error::InvalidCall)?;
-
-//         let _: () = env.invoke_contract(
-//             &relayer,
-//             &symbol_short!("signal_secret"),
-//             (escrow_src, escrow_dest, order_id).into(),
-//         );
-
-//         Ok(())
-//     }
-
-//     /// Arbitrary calls functionality - allows owner to make calls to other contracts
-//     pub fn arbitrary_calls(
-//         env: Env,
-//         targets: Vec<Address>,
-//         call_data: Vec<Bytes>,
-//     ) -> Result<(), Error> {
-//         let owner = env.storage().instance().get::<DataKey, Address>(&DataKey::Owner)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         owner.require_auth();
-
-//         if targets.len() != call_data.len() {
-//             return Err(Error::InvalidCall);
-//         }
-
-//         for i in 0..targets.len() {
-//             // In Soroban, arbitrary calls would need to be structured differently
-//             // This is a simplified version - actual implementation would depend on
-//             // the specific call structure needed
-//             let target = targets.get(i).unwrap();
-//             let data = call_data.get(i).unwrap();
-            
-//             // For now, we'll just invoke a generic call
-//             // In practice, this would need to be more sophisticated
-//             let _result: Result<(), Error> = env.try_invoke_contract(
-//                 &target,
-//                 &symbol_short!("call"),
-//                 (data,).into(),
-//             );
-//         }
-
-//         Ok(())
-//     }
-
-//     // Getters
-//     pub fn get_dutch_auction(env: Env) -> Result<Address, Error> {
-//         env.storage().instance().get(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)
-//     }
-
-//     pub fn get_relayer(env: Env) -> Result<Address, Error> {
-//         env.storage().instance().get(&DataKey::Relayer)
-//             .ok_or(Error::InvalidCall)
-//     }
-
-//     pub fn get_escrow_factory(env: Env) -> Result<Address, Error> {
-//         env.storage().instance().get(&DataKey::EscrowFactory)
-//             .ok_or(Error::InvalidCall)
-//     }
-
-//     pub fn get_owner(env: Env) -> Result<Address, Error> {
-//         env.storage().instance().get(&DataKey::Owner)
-//             .ok_or(Error::InvalidCall)
-//     }
-
-//     pub fn transfer_ownership(env: Env, new_owner: Address) -> Result<(), Error> {
-//         let owner = env.storage().instance().get::<DataKey, Address>(&DataKey::Owner)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         owner.require_auth();
-//         env.storage().instance().set(&DataKey::Owner, &new_owner);
-//         Ok(())
-//     }
-// }
+    fn get_dutch_auction(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DutchAuction)
+            .unwrap()
+    }
+}

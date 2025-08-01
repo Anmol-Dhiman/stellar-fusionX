@@ -1,316 +1,214 @@
-// #![no_std]
-// use soroban_sdk::{
-//     contract, contractimpl, Address, Bytes, Env, token, crypto::Hash
-// };
+#![no_std]
+use soroban_sdk::{
+    contract, contractimpl, contracttype, crypto::Hash, token, Address, Bytes, BytesN, Env, String,
+};
+mod relayer {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/relayer.wasm");
+}
 
-// mod types;
-// use types::{DataKey, Error, Order};
+#[contract]
+pub struct EscrowSrc;
 
-// // Base Escrow functionality
-// pub struct BaseEscrow;
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum DataKey {
+    DeployedAt,        // Timestamp when the contract was deployed
+    HashLock,          // Hash lock for the escrow
+    OrderId,           // Order ID associated with the escrow
+    ExecutiveResolver, // Address of the executive resolver
+    Relayer,           // Address of the relayer contract
+    TokenIn,           // Address of the token to be released
+    AmountIn,          // Amount of tokens to be released
+    Maker,             // Address of the maker
+}
 
-// impl BaseEscrow {
-//     pub fn initialize_base(
-//         env: &Env,
-//         resolver: Address,
-//         dutch_auction: Address,
-//         hash_lock_secret: Bytes,
-//         order_id: Bytes,
-//         relayer: Address,
-//     ) {
-//         env.storage().instance().set(&DataKey::DeployedAt, &env.ledger().timestamp());
-//         env.storage().instance().set(&DataKey::HashLockSecret, &hash_lock_secret);
-//         env.storage().instance().set(&DataKey::OrderId, &order_id);
-//         env.storage().instance().set(&DataKey::ExecutiveResolver, &resolver);
-//         env.storage().instance().set(&DataKey::DutchAuction, &dutch_auction);
-//         env.storage().instance().set(&DataKey::Relayer, &relayer);
-//     }
+const SRC_FINALITY_LOCK: u128 = 2 * 60;
+const SRC_RESOLVER_UNLOCK_PERIOD: u128 = SRC_FINALITY_LOCK + 4 * 60;
+const SRC_ANYONE_UNLOCK_PERIOD: u128 = SRC_RESOLVER_UNLOCK_PERIOD + 4 * 60;
+const SRC_RESOLVER_CANCEL: u128 = SRC_ANYONE_UNLOCK_PERIOD + 2 * 60;
 
-//     pub fn check_time_after(env: &Env, start: u64) -> Result<(), Error> {
-//         let deployed_at = env.storage().instance().get::<DataKey, u64>(&DataKey::DeployedAt)
-//             .ok_or(Error::InvalidTime)?;
-        
-//         if env.ledger().timestamp() < deployed_at + start {
-//             return Err(Error::InvalidTime);
-//         }
-//         Ok(())
-//     }
+#[contractimpl]
+impl EscrowSrc {
+    pub fn initialize(
+        env: Env,
+        order_id: BytesN<32>,
+        hash_lock: BytesN<32>,
+        token_in: Address,
+        amount_in: u128,
+        maker: Address,
+        executive_resolver: Address,
+        relayer: Address,
+    ) {
+        let deployed_at: u128 = env.ledger().timestamp().into();
+        env.storage()
+            .persistent()
+            .set(&DataKey::DeployedAt, &deployed_at);
+        env.storage()
+            .persistent()
+            .set(&DataKey::HashLock, &hash_lock);
+        env.storage().persistent().set(&DataKey::OrderId, &order_id);
+        env.storage().persistent().set(&DataKey::TokenIn, &token_in);
 
-//     pub fn check_time_before(env: &Env, stop: u64) -> Result<(), Error> {
-//         let deployed_at = env.storage().instance().get::<DataKey, u64>(&DataKey::DeployedAt)
-//             .ok_or(Error::InvalidTime)?;
-        
-//         if env.ledger().timestamp() >= deployed_at + stop {
-//             return Err(Error::InvalidTime);
-//         }
-//         Ok(())
-//     }
+        env.storage()
+            .persistent()
+            .set(&DataKey::AmountIn, &amount_in);
+        env.storage().persistent().set(&DataKey::Maker, &maker);
+        env.storage()
+            .persistent()
+            .set(&DataKey::ExecutiveResolver, &executive_resolver);
 
-//     pub fn check_valid_secret(env: &Env, secret: Bytes) -> Result<(), Error> {
-//         let hash_lock_secret = env.storage().instance().get::<DataKey, Bytes>(&DataKey::HashLockSecret)
-//             .ok_or(Error::InvalidSecret)?;
-        
-//         let secret_hash = env.crypto().keccak256(&secret);
-//         if secret_hash.to_bytes() != hash_lock_secret {
-//             return Err(Error::InvalidSecret);
-//         }
-//         Ok(())
-//     }
+        env.storage().persistent().set(&DataKey::Relayer, &relayer);
+    }
 
-//     pub fn check_relayer(env: &Env, caller: &Address) -> Result<(), Error> {
-//         let relayer = env.storage().instance().get::<DataKey, Address>(&DataKey::Relayer)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         if *caller != relayer {
-//             return Err(Error::NotAuthorized);
-//         }
-//         Ok(())
-//     }
+    pub fn withdraw(env: Env, secret: BytesN<32>, caller: Address) {
+        caller.require_auth();
+        Self::onlyAfter(env.clone(), SRC_FINALITY_LOCK);
+        Self::onlyBefore(env.clone(), SRC_RESOLVER_UNLOCK_PERIOD);
+        Self::validateSecret(env.clone(), secret);
+        Self::onlyExecutiveResolver(env.clone(), caller.clone());
+        Self::withdraw_token(
+            env.clone(),
+            Self::get_token_in(env.clone()),
+            caller.clone(),
+            Self::get_amount_in(env.clone()),
+        );
+        Self::transfer_security_deposit(env.clone(), caller.clone());
+    }
 
-//     pub fn check_resolver(env: &Env, caller: &Address) -> Result<(), Error> {
-//         let relayer = env.storage().instance().get::<DataKey, Address>(&DataKey::Relayer)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         // Check if caller is a resolver through relayer contract
-//         let is_resolver: bool = env.invoke_contract(
-//             &relayer,
-//             &soroban_sdk::symbol_short!("is_resolver"),
-//             (*caller,).into(),
-//         );
-        
-//         if !is_resolver {
-//             return Err(Error::NotAuthorized);
-//         }
-//         Ok(())
-//     }
+    pub fn public_withdraw(env: Env, secret: BytesN<32>, caller: Address) {
+        Self::onlyAfter(env.clone(), SRC_RESOLVER_UNLOCK_PERIOD);
+        Self::onlyBefore(env.clone(), SRC_ANYONE_UNLOCK_PERIOD);
+        Self::validateSecret(env.clone(), secret);
+        Self::only_resolver(env.clone(), caller.clone());
+        Self::withdraw_token(
+            env.clone(),
+            Self::get_token_in(env.clone()),
+            Self::get_executive_resolver(env.clone()),
+            Self::get_amount_in(env.clone()),
+        );
+        Self::transfer_security_deposit(env.clone(), caller.clone());
+    }
 
-//     pub fn check_executive_resolver(env: &Env, caller: &Address) -> Result<(), Error> {
-//         let executive_resolver = env.storage().instance().get::<DataKey, Address>(&DataKey::ExecutiveResolver)
-//             .ok_or(Error::NotAuthorized)?;
-        
-//         if *caller != executive_resolver {
-//             return Err(Error::NotAuthorized);
-//         }
-//         Ok(())
-//     }
+    pub fn cancel(env: Env, caller: Address) {
+        Self::onlyAfter(env.clone(), SRC_ANYONE_UNLOCK_PERIOD);
+        Self::onlyBefore(env.clone(), SRC_RESOLVER_CANCEL);
+        Self::onlyExecutiveResolver(env.clone(), caller.clone());
 
-//     pub fn withdraw_token(env: &Env, token: Address, to: Address, amount: u128) {
-//         let token_client = token::Client::new(env, &token);
-//         token_client.transfer(&env.current_contract_address(), &to, &(amount as i128));
-//     }
+        Self::withdraw_token(
+            env.clone(),
+            Self::get_token_in(env.clone()),
+            Self::get_maker(env.clone()),
+            Self::get_amount_in(env.clone()),
+        );
+        Self::transfer_security_deposit(env.clone(), caller.clone());
+    }
+    pub fn public_cancel(env: Env, caller: Address) {
+        Self::onlyAfter(env.clone(), SRC_RESOLVER_CANCEL);
+        Self::only_resolver(env.clone(), caller.clone());
+        Self::withdraw_token(
+            env.clone(),
+            Self::get_token_in(env.clone()),
+            Self::get_maker(env.clone()),
+            Self::get_amount_in(env.clone()),
+        );
+        Self::transfer_security_deposit(env.clone(), caller.clone());
+    }
 
-//     pub fn transfer_security_deposit(env: &Env, to: Address) {
-//         // In Soroban, we would handle native token (XLM) transfers differently
-//         // This is a simplified version - actual implementation would depend on 
-//         // how security deposits are handled in Soroban
-//         let balance = env.current_contract_address().balance();
-//         if balance > 0 {
-//             to.transfer(&balance);
-//         }
-//     }
-// }
+    // internal functions
+    fn withdraw_token(env: Env, token: Address, to: Address, amount: u128) {
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&env.current_contract_address(), &to, &(amount as i128));
+    }
 
-// #[contract]
-// pub struct EscrowDest;
+    fn transfer_security_deposit(env: Env, to: Address) {
+        let native_token_contract_id: Address = Address::from_string(&String::from_str(
+            &env,
+            "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        ));
 
-// const FINALITY_LOCK: u64 = 2 * 60; // 2 minutes
-// const RESOLVER_UNLOCK_PERIOD: u64 = FINALITY_LOCK + 2 * 60; // 4 minutes total
-// const ANYONE_UNLOCK_PERIOD: u64 = RESOLVER_UNLOCK_PERIOD + 2 * 60; // 6 minutes total
+        let token_client = token::Client::new(&env, &native_token_contract_id);
 
-// #[contractimpl]
-// impl EscrowDest {
-//     pub fn initialize(
-//         env: Env,
-//         resolver: Address,
-//         dutch_auction: Address,
-//         hash_lock_secret: Bytes,
-//         order_id: Bytes,
-//         relayer: Address,
-//         token_out: Address,
-//         amount_out: u128,
-//         maker: Address,
-//     ) {
-//         BaseEscrow::initialize_base(&env, resolver, dutch_auction, hash_lock_secret, order_id, relayer);
-//         env.storage().instance().set(&DataKey::TokenOut, &token_out);
-//         env.storage().instance().set(&DataKey::AmountOut, &amount_out);
-//         env.storage().instance().set(&DataKey::Maker, &maker);
-//     }
+        // Get contract's own address as sender
+        let from_addr = env.current_contract_address();
 
-//     pub fn withdraw(env: Env, secret: Bytes) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_time_after(&env, FINALITY_LOCK)?;
-//         BaseEscrow::check_time_before(&env, RESOLVER_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_valid_secret(&env, secret)?;
-//         BaseEscrow::check_executive_resolver(&env, &caller)?;
+        // Check the full balance of wrapped XLM the contract holds
+        let balance = token_client.balance(&from_addr);
 
-//         let token_out = env.storage().instance().get::<DataKey, Address>(&DataKey::TokenOut)
-//             .ok_or(Error::InvalidCall)?;
-//         let amount_out = env.storage().instance().get::<DataKey, u128>(&DataKey::AmountOut)
-//             .ok_or(Error::InvalidCall)?;
-//         let maker = env.storage().instance().get::<DataKey, Address>(&DataKey::Maker)
-//             .ok_or(Error::InvalidCall)?;
+        if balance > 0 {
+            // Transfer full balance to recipient 'to'
+            token_client.transfer(&from_addr, &to, &balance);
+        }
+    }
 
-//         BaseEscrow::withdraw_token(&env, token_out, maker, amount_out);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
+    fn get_token_in(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::TokenIn).unwrap()
+    }
+    fn get_amount_in(env: Env) -> u128 {
+        env.storage().persistent().get(&DataKey::AmountIn).unwrap()
+    }
+    fn get_maker(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::Maker).unwrap()
+    }
 
-//     pub fn public_withdraw(env: Env, secret: Bytes) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_resolver(&env, &caller)?;
-//         BaseEscrow::check_time_after(&env, RESOLVER_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_time_before(&env, ANYONE_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_valid_secret(&env, secret)?;
+    fn get_executive_resolver(env: Env) -> Address {
+        env.storage()
+            .persistent()
+            .get(&DataKey::ExecutiveResolver)
+            .unwrap()
+    }
 
-//         let token_out = env.storage().instance().get::<DataKey, Address>(&DataKey::TokenOut)
-//             .ok_or(Error::InvalidCall)?;
-//         let amount_out = env.storage().instance().get::<DataKey, u128>(&DataKey::AmountOut)
-//             .ok_or(Error::InvalidCall)?;
-//         let maker = env.storage().instance().get::<DataKey, Address>(&DataKey::Maker)
-//             .ok_or(Error::InvalidCall)?;
+    fn validateSecret(env: Env, secret: BytesN<32>) {
+        let hash_lock: BytesN<32> = env.storage().persistent().get(&DataKey::HashLock).unwrap();
+        let _secret: Bytes = secret.into();
+        let secret_bytes: BytesN<32> = env.crypto().keccak256(&_secret).into();
+        if hash_lock != secret_bytes {
+            panic!("Invalid secret");
+        }
+    }
 
-//         BaseEscrow::withdraw_token(&env, token_out, maker, amount_out);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
+    fn onlyExecutiveResolver(env: Env, caller: Address) {
+        let executive_resolver: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ExecutiveResolver)
+            .unwrap();
+        if caller != executive_resolver {
+            panic!("Unauthorized caller");
+        }
+    }
+    fn onlyAfter(env: Env, start: u128) {
+        let deployed_at: u128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DeployedAt)
+            .unwrap_or(0);
+        let block_timestamp: u128 = env.ledger().timestamp().into();
+        if block_timestamp < deployed_at + start {
+            panic!("Invalid time");
+        }
+    }
+    fn onlyBefore(env: Env, stop: u128) {
+        let deployed_at: u128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DeployedAt)
+            .unwrap_or(0);
+        let block_timestamp: u128 = env.ledger().timestamp().into();
+        if block_timestamp >= deployed_at + stop {
+            panic!("Invalid time");
+        }
+    }
 
-//     pub fn cancel(env: Env) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_time_after(&env, ANYONE_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_executive_resolver(&env, &caller)?;
+    fn only_resolver(env: Env, caller: Address) {
+        let relayer = relayer::Client::new(&env.clone(), &Self::get_relayer(env));
+        let value = relayer.is_resolver(&caller);
+        if !value {
+            panic!("Only resolvers can call this function");
+        }
+    }
 
-//         let token_out = env.storage().instance().get::<DataKey, Address>(&DataKey::TokenOut)
-//             .ok_or(Error::InvalidCall)?;
-//         let amount_out = env.storage().instance().get::<DataKey, u128>(&DataKey::AmountOut)
-//             .ok_or(Error::InvalidCall)?;
-
-//         BaseEscrow::withdraw_token(&env, token_out, caller, amount_out);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
-// }
-
-// #[contract]
-// pub struct EscrowSrc;
-
-// const SRC_FINALITY_LOCK: u64 = 2 * 60; // 2 minutes
-// const SRC_RESOLVER_UNLOCK_PERIOD: u64 = SRC_FINALITY_LOCK + 4 * 60; // 6 minutes total
-// const SRC_ANYONE_UNLOCK_PERIOD: u64 = SRC_RESOLVER_UNLOCK_PERIOD + 4 * 60; // 10 minutes total
-// const SRC_RESOLVER_CANCEL: u64 = SRC_ANYONE_UNLOCK_PERIOD + 2 * 60; // 12 minutes total
-// const SRC_ANYONE_CANCEL: u64 = SRC_RESOLVER_CANCEL + 2 * 60; // 14 minutes total
-
-// #[contractimpl]
-// impl EscrowSrc {
-//     pub fn initialize(
-//         env: Env,
-//         resolver: Address,
-//         dutch_auction: Address,
-//         hash_lock_secret: Bytes,
-//         order_id: Bytes,
-//         relayer: Address,
-//     ) {
-//         BaseEscrow::initialize_base(&env, resolver, dutch_auction, hash_lock_secret, order_id, relayer);
-//     }
-
-//     pub fn withdraw(env: Env, secret: Bytes) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_time_after(&env, SRC_FINALITY_LOCK)?;
-//         BaseEscrow::check_time_before(&env, SRC_RESOLVER_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_valid_secret(&env, secret)?;
-//         BaseEscrow::check_executive_resolver(&env, &caller)?;
-
-//         let order_id = env.storage().instance().get::<DataKey, Bytes>(&DataKey::OrderId)
-//             .ok_or(Error::InvalidCall)?;
-//         let dutch_auction = env.storage().instance().get::<DataKey, Address>(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)?;
-
-//         let order: Order = env.invoke_contract(
-//             &dutch_auction,
-//             &soroban_sdk::symbol_short!("get_order"),
-//             (order_id,).into(),
-//         );
-
-//         let token_in = Address::from_string(&String::from_utf8(order.token_in.to_vec()).unwrap());
-//         BaseEscrow::withdraw_token(&env, token_in, caller.clone(), order.amount_in);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
-
-//     pub fn public_withdraw(env: Env, secret: Bytes) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_resolver(&env, &caller)?;
-//         BaseEscrow::check_time_after(&env, SRC_RESOLVER_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_time_before(&env, SRC_ANYONE_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_valid_secret(&env, secret)?;
-
-//         let order_id = env.storage().instance().get::<DataKey, Bytes>(&DataKey::OrderId)
-//             .ok_or(Error::InvalidCall)?;
-//         let dutch_auction = env.storage().instance().get::<DataKey, Address>(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)?;
-//         let executive_resolver = env.storage().instance().get::<DataKey, Address>(&DataKey::ExecutiveResolver)
-//             .ok_or(Error::InvalidCall)?;
-
-//         let order: Order = env.invoke_contract(
-//             &dutch_auction,
-//             &soroban_sdk::symbol_short!("get_order"),
-//             (order_id,).into(),
-//         );
-
-//         let token_in = Address::from_string(&String::from_utf8(order.token_in.to_vec()).unwrap());
-//         BaseEscrow::withdraw_token(&env, token_in, executive_resolver, order.amount_in);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
-
-//     pub fn cancel(env: Env) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_time_after(&env, SRC_ANYONE_UNLOCK_PERIOD)?;
-//         BaseEscrow::check_time_before(&env, SRC_RESOLVER_CANCEL)?;
-//         BaseEscrow::check_executive_resolver(&env, &caller)?;
-
-//         let order_id = env.storage().instance().get::<DataKey, Bytes>(&DataKey::OrderId)
-//             .ok_or(Error::InvalidCall)?;
-//         let dutch_auction = env.storage().instance().get::<DataKey, Address>(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)?;
-
-//         let order: Order = env.invoke_contract(
-//             &dutch_auction,
-//             &soroban_sdk::symbol_short!("get_order"),
-//             (order_id,).into(),
-//         );
-
-//         let token_in = Address::from_string(&String::from_utf8(order.token_in.to_vec()).unwrap());
-//         BaseEscrow::withdraw_token(&env, token_in, order.maker, order.amount_in);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
-
-//     pub fn public_cancel(env: Env) -> Result<(), Error> {
-//         let caller = env.current_contract_address(); // In practice, get actual caller
-        
-//         BaseEscrow::check_resolver(&env, &caller)?;
-//         BaseEscrow::check_time_before(&env, SRC_RESOLVER_CANCEL)?;
-
-//         let order_id = env.storage().instance().get::<DataKey, Bytes>(&DataKey::OrderId)
-//             .ok_or(Error::InvalidCall)?;
-//         let dutch_auction = env.storage().instance().get::<DataKey, Address>(&DataKey::DutchAuction)
-//             .ok_or(Error::InvalidCall)?;
-
-//         let order: Order = env.invoke_contract(
-//             &dutch_auction,
-//             &soroban_sdk::symbol_short!("get_order"),
-//             (order_id,).into(),
-//         );
-
-//         let token_in = Address::from_string(&String::from_utf8(order.token_in.to_vec()).unwrap());
-//         BaseEscrow::withdraw_token(&env, token_in, order.maker, order.amount_in);
-//         BaseEscrow::transfer_security_deposit(&env, caller);
-//         Ok(())
-//     }
-// }
+    //     public getters
+    pub fn get_relayer(env: Env) -> Address {
+        env.storage().persistent().get(&DataKey::Relayer).unwrap()
+    }
+}
