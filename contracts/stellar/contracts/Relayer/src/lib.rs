@@ -1,8 +1,17 @@
 #![no_std]
 
+use soroban_sdk::xdr::FromXdr;
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env,
 };
+
+mod dutch_auction {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/dutchauction.wasm");
+}
+
+mod wrapped_tokens {
+    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/wrappedtoken.wasm");
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -20,6 +29,22 @@ pub struct SignalSecretShare {
     pub order_id: BytesN<32>,
     pub resolver: Address,
 }
+
+
+#[derive(Clone)]
+#[contracttype]
+pub struct OrderInput {
+    pub orderId: BytesN<32>,
+    pub maker: Address,
+    pub tokenIn: BytesN<32>,
+    pub tokenOut: BytesN<32>,
+    pub amountIn: u128,
+    pub minAmountOut: u128,
+    pub maxAmountOut: u128,
+    pub hashLock: BytesN<32>,
+}
+
+
 
 #[contract]
 pub struct Relayer;
@@ -55,6 +80,35 @@ impl Relayer {
             .unwrap_or(false)
     }
 
+    pub fn place_order(
+        env: Env,
+        order_input: dutch_auction::OrderInput,
+        public_key: BytesN<32>,
+        signature: BytesN<64>,
+        hash: BytesN<32>,
+    ) {
+        Self::only_owner(env.clone());
+        let token_in = Self::bytesn32_to_address(env.clone(), order_input.tokenIn.clone());
+        let _wrappedtoken = wrapped_tokens::Client::new(&env.clone(), &token_in);
+        _wrappedtoken.permit(
+            &token_in,
+            &order_input.maker.clone(),
+            &env.current_contract_address(),
+            &order_input.amountIn,
+            &public_key,
+            &signature,
+            &hash,
+        );
+
+        // start dutch auction
+        let _dutch_auction =
+            dutch_auction::Client::new(&env.clone(), &Self::get_dutch_auction(env.clone()));
+        _dutch_auction.start_auction(&order_input);
+    }
+
+    fn bytesn32_to_address(env: Env, bytes: BytesN<32>) -> Address {
+        Address::from_xdr(&env, &bytes.into()).unwrap()
+    }
     pub fn move_tokens_to_escrow(
         env: Env,
         maker: Address,

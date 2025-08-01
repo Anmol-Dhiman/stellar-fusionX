@@ -39,42 +39,41 @@ impl MockToken {
             .set(&DataKey::Allowance(caller, to), &amount);
     }
 
-    pub fn transfer_from(env: Env, amount: u128, from: Address, to: Address, caller: Address) {
-        caller.require_auth();
-
-        if amount == 0 {
+    pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        let _amount = amount as u128;
+        if _amount == 0 {
             panic!("Invalid amount");
         }
 
         // Check allowance
-        let current_allowance = Self::get_allowance(env.clone(), from.clone(), caller.clone());
+        let current_allowance = Self::get_allowance(env.clone(), from.clone(), spender.clone());
 
-        if amount > current_allowance {
+        if _amount > current_allowance {
             panic!("Invalid allowance");
         }
 
         // Check balance
         let from_balance = Self::get_balance(env.clone(), from.clone());
 
-        if amount > from_balance {
+        if _amount > from_balance {
             panic!("Invalid balance");
         }
 
         // Update allowance
-        let new_allowance = current_allowance - amount;
+        let new_allowance = current_allowance - _amount;
         env.storage()
             .persistent()
-            .set(&DataKey::Allowance(from.clone(), caller), &new_allowance);
+            .set(&DataKey::Allowance(from.clone(), spender), &new_allowance);
 
         // Update from balance
-        let new_from_balance = from_balance - amount;
+        let new_from_balance = from_balance - _amount;
         env.storage()
             .persistent()
             .set(&DataKey::Balance(from.clone()), &new_from_balance);
 
         // Update to balance
         let to_balance = Self::get_balance(env.clone(), to.clone());
-        let new_to_balance = to_balance + amount;
+        let new_to_balance = to_balance + _amount;
         env.storage()
             .persistent()
             .set(&DataKey::Balance(to), &new_to_balance);
