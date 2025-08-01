@@ -2,25 +2,25 @@
 use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env};
 
 mod dutch_auction {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/dutchauction.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\dutchauction.wasm");
 }
 
 mod escrow_factory {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowfactory.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowfactory.wasm");
 }
 
 mod relayer {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/relayer.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\relayer.wasm");
 }
 
 mod escrow_src {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowsrc.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowsrc.wasm");
     pub type EscrowSrcClient<'a> = Client<'a>;
 }
 use escrow_src::EscrowSrcClient;
 
 mod escrow_dest {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowdest.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowdest.wasm");
     pub type EscrowDestClient<'a> = Client<'a>;
 }
 use escrow_dest::EscrowDestClient;

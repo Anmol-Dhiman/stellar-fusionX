@@ -4,7 +4,7 @@ use soroban_sdk::{
 };
 
 mod relayer {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/relayer.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\relayer.wasm");
 }
 
 #[contract]

@@ -6,13 +6,13 @@ use soroban_sdk::{
 const SECURITY_DEPOSIT: u128 = 500_000_000; // 1 XLM in stroops (assuming XLM as security deposit)
 
 mod escrow_src {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowsrc.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowsrc.wasm");
     pub type EscrowSrcClient<'a> = Client<'a>;
 }
 use escrow_src::EscrowSrcClient;
 
 mod escrow_dest {
-    soroban_sdk::contractimport!(file = "/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowdest.wasm");
+    soroban_sdk::contractimport!(file = "G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowdest.wasm");
     pub type EscrowDestClient<'a> = Client<'a>;
 }
 use escrow_dest::EscrowDestClient;
@@ -52,7 +52,7 @@ impl EscrowFactory {
         executive_resolver.require_auth();
         Self::check_security_deposit(env.clone(), executive_resolver.clone());
 
-        let escrow_src_wasm = include_bytes!("/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowsrc.wasm");
+        let escrow_src_wasm = include_bytes!("G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowsrc.wasm");
         let escrow_src_wasm_bytes = Bytes::from_array(&env, escrow_src_wasm);
         let wasm_hash = env.deployer().upload_contract_wasm(escrow_src_wasm_bytes);
         let escrow_contract_address = env
@@ -94,7 +94,7 @@ impl EscrowFactory {
         executive_resolver.require_auth();
         Self::check_security_deposit(env.clone(), executive_resolver.clone());
 
-        let escrow_dest_wasm = include_bytes!("/Users/anmol/Desktop/i/College/hackathons/unidefi/main-repo/stellar-fusionX/contracts/stellar/target/wasm32v1-none/release/escrowdest.wasm");
+        let escrow_dest_wasm = include_bytes!("G:\\EthUnite\\stellar-fusionX\\contracts\\stellar\\target\\wasm32v1-none\\release\\escrowdest.wasm");
         let escrow_dest_wasm_bytes = Bytes::from_array(&env, escrow_dest_wasm);
         let wasm_hash = env.deployer().upload_contract_wasm(escrow_dest_wasm_bytes);
 
