@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { WalletConnection } from "@/components/wallet-connection";
+import { useUser } from "@/context/user-context"; // Import useUser
 
 const transactions = [
   {
@@ -57,6 +58,7 @@ const transactions = [
 
 export default function DashboardPage() {
   const [showPrivateKeys, setShowPrivateKeys] = useState(false);
+  const { userData } = useUser(); // Use userData from context
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -94,7 +96,9 @@ export default function DashboardPage() {
               <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
                 <ArrowUpDown className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-bold text-white">Stellarion</span>
+              <span className="text-xl font-bold text-white">
+                StellarBridge
+              </span>
             </Link>
 
             <div className="flex items-center space-x-4">
@@ -342,30 +346,10 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-gray-400 text-sm mb-1">
-                      Account Abstraction Address
-                    </p>
+                    <p className="text-gray-400 text-sm mb-1">EVM Address</p>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
-                        0x742d35Cc6634C0532925a3b8D4C0532925a3b8D4
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-gray-400 text-sm mb-1">
-                      Original Wallet Address
-                    </p>
-                    <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
-                        0x8ba1f109551bD432803012645Hac136c0532925a3
+                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                        {userData?.ethPublicAddress || "Connect wallet to see"}
                       </code>
                       <Button
                         variant="ghost"
@@ -394,9 +378,10 @@ export default function DashboardPage() {
                       </Button>
                     </div>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
                         {showPrivateKeys
-                          ? "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+                          ? userData?.ethPrivateAddress ||
+                            "Connect wallet to see"
                           : "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"}
                       </code>
                       <Button
@@ -438,29 +423,12 @@ export default function DashboardPage() {
                 <CardContent className="space-y-4">
                   <div>
                     <p className="text-gray-400 text-sm mb-1">
-                      Account Abstraction Address
+                      Stellar Address
                     </p>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
-                        GCKFBEIYTKP56VOOHQHHUUIU6SXQPQZLFOQGNC4LSXQPQZLFOQGNC4L
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-gray-400 text-sm mb-1">
-                      Original Wallet Address
-                    </p>
-                    <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
-                        GDQJUTQYK2MQX2VGDR47OWLB4DZQP3HOEKDTQEVYVW5EKDTQEVYVW5E
+                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                        {userData?.stellarPublicAddress ||
+                          "Connect wallet to see"}
                       </code>
                       <Button
                         variant="ghost"
@@ -489,9 +457,10 @@ export default function DashboardPage() {
                       </Button>
                     </div>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
                         {showPrivateKeys
-                          ? "SCQN5WFXMHQZPQZLFOQGNC4LSXQPQZLFOQGNC4LSXQPQZLFOQGNC4L"
+                          ? userData?.stellarPrivateAddress ||
+                            "Connect wallet to see"
                           : "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"}
                       </code>
                       <Button
