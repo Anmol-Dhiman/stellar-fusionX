@@ -58,3 +58,25 @@ Stellar
     9. [Maker] - Calls the API in RelayerNode to broadcast
     10. [ResolverNode] - `withdraw()` in Stellar and Ethereum `withdraw()`
     11. Signal completion
+
+
+Ethereum --> Stellar
+1. [Maker] - Calls the API in Relayer Node
+    struct Order {
+        uint256 salt;
+        Address maker;
+        Address receiver;
+        Address makerAsset;
+        Address takerAsset;
+        uint256 makingAmount;
+        uint256 takingAmount;
+        MakerTraits makerTraits;
+    }
+3. [RelayerNode] - Broadcast the order to ResolverNode Servers using webhook
+4. [ResolverNode] - Calculates if profitable
+5. [ResolverNode] - In the Resolver contract - `deploySrc()`
+6. [ResolverNode] - Deploy Dest contract in Stellar with Security deposit - `deployDest  .sol` with balance of tokenOut
+7. [ResolverNode] - Src and dest escrow address along with orderID to RelayerNode via API. RelayerNode checks the state.
+8. [Maker] - Calls the API in RelayerNode to broadcast secret
+9. [ResolverNode] - `withdraw()` in Ethereum and Stellar `withdraw()`
+10. Signal completion

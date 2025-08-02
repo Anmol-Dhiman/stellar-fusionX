@@ -1,0 +1,9 @@
+[submodule "contracts/eth/lib/cross-chain-swap"]
+	path = contracts/eth/lib/cross-chain-swap
+	url = https://github.com/1inch/cross-chain-swap
+[submodule "contracts/eth/lib/limit-order-protocol"]
+	path = contracts/eth/lib/limit-order-protocol
+	url = https://github.com/1inch/limit-order-protocol
+[submodule "contracts/eth/dependencies/cross-chain-swap"]
+	path = contracts/eth/dependencies/cross-chain-swap
+	url = https://github.com/1inch/cross-chain-swap
