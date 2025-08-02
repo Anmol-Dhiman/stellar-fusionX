@@ -334,11 +334,11 @@ export default function DashboardPage() {
 
           <TabsContent value="accounts" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Ethereum Account */}
+              {/* EVM Account */}
               <Card className="bg-white/5 backdrop-blur-sm border-white/10">
                 <CardHeader>
                   <CardTitle className="text-white flex items-center justify-between">
-                    Ethereum Account
+                    EVM Account
                     <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
                       ETH
                     </Badge>
@@ -348,7 +348,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-gray-400 text-sm mb-1">EVM Address</p>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {userData?.ethPublicAddress || "Connect wallet to see"}
                       </code>
                       <Button
@@ -378,7 +378,7 @@ export default function DashboardPage() {
                       </Button>
                     </div>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {showPrivateKeys
                           ? userData?.ethPrivateAddress ||
                             "Connect wallet to see"
@@ -426,7 +426,7 @@ export default function DashboardPage() {
                       Stellar Address
                     </p>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {userData?.stellarPublicAddress ||
                           "Connect wallet to see"}
                       </code>
@@ -457,7 +457,7 @@ export default function DashboardPage() {
                       </Button>
                     </div>
                     <div className="flex items-center space-x-2 p-2 bg-white/5 rounded border border-white/10">
-                      <code className="text-white text-sm font-mono break-all min-w-0 flex-1">
+                      <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {showPrivateKeys
                           ? userData?.stellarPrivateAddress ||
                             "Connect wallet to see"
