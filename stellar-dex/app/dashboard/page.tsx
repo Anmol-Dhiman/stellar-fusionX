@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   ArrowUpDown,
   TrendingUp,
@@ -15,10 +19,33 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Loader2,
+  Coins,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { WalletConnection } from "@/components/wallet-connection";
-import { useUser } from "@/context/user-context"; // Import useUser
+import { useUser } from "@/context/user-context";
+
+// Stellar SDK imports
+import {
+  StellarWalletsKit,
+  WalletNetwork,
+  allowAllModules,
+} from '@creit.tech/stellar-wallets-kit';
+
+const StellarSdk = require("@stellar/stellar-sdk");
+const { Keypair, TransactionBuilder, Networks, Contract, nativeToScVal, rpc } = StellarSdk;
+
+// Configuration
+const WRAPPED_TOKEN_CONTRACT_ADDRESS = "CB27AJYW32SYXRGGTZSWHZ6ZRURIXP5ANARZ6DCAWID6UWVY6P2Z3IGZ";
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const networkPassphrase = Networks.TESTNET;
+
+// Helper functions
+function tokensToUnits(tokens: string | number): string {
+  return (BigInt(tokens) * BigInt(10 ** 18)).toString();
+}
 
 const transactions = [
   {
@@ -58,7 +85,50 @@ const transactions = [
 
 export default function DashboardPage() {
   const [showPrivateKeys, setShowPrivateKeys] = useState(false);
-  const { userData } = useUser(); // Use userData from context
+  const [showWrapDialog, setShowWrapDialog] = useState(false);
+  const [wrapForm, setWrapForm] = useState({
+    tokenAddress: "",
+    amount: "",
+  });
+  const [wrapLoading, setWrapLoading] = useState(false);
+  const [approveLoading, setApproveLoading] = useState(false);
+  const [wrapError, setWrapError] = useState<string | null>(null);
+  const [wrapStep, setWrapStep] = useState<'initial' | 'approved' | 'completed'>('initial');
+  const [transactionHashes, setTransactionHashes] = useState<{
+    approveHash?: string;
+    depositHash?: string;
+  }>({});
+  const [stellarKit, setStellarKit] = useState<StellarWalletsKit | null>(null);
+  const [accountStatus, setAccountStatus] = useState<{
+    loading: boolean;
+    exists: boolean;
+    balance?: string;
+    error?: string;
+  } | null>(null);
+
+  const { userData, hasStellarConnection } = useUser();
+
+  // Initialize Stellar Wallets Kit (optional - we have direct Albedo fallback)
+  useEffect(() => {
+    try {
+      const kit = new StellarWalletsKit({
+        network: WalletNetwork.TESTNET,
+        selectedWalletId: 'albedo', // Use Albedo wallet
+        modules: allowAllModules(),
+      });
+      setStellarKit(kit);
+      console.log("Stellar Wallets Kit initialized with Albedo");
+    } catch (err) {
+      console.warn("Failed to initialize Stellar Wallets Kit, will use direct Albedo connection:", err);
+    }
+  }, []);
+
+  // Check account status when dialog opens
+  useEffect(() => {
+    if (showWrapDialog && userData?.stellarPublicAddress) {
+      checkUserAccountStatus();
+    }
+  }, [showWrapDialog, userData?.stellarPublicAddress]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -85,6 +155,370 @@ export default function DashboardPage() {
         return "bg-gray-500/20 text-gray-400 border-gray-500/30";
     }
   };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error("Failed to copy to clipboard:", err);
+    }
+  };
+
+  // Check if account exists and is funded
+  const checkAccountStatus = async (address: string) => {
+    try {
+      const account = await server.getAccount(address);
+      return { exists: true, account };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return { exists: false, account: null };
+      }
+      throw error;
+    }
+  };
+
+  const checkUserAccountStatus = async () => {
+    if (!userData?.stellarPublicAddress) return;
+    
+    setAccountStatus({ loading: true, exists: false });
+    
+    try {
+      const status = await checkAccountStatus(userData.stellarPublicAddress);
+      if (status.exists && status.account) {
+        const xlmBalance = status.account.balances.find((b: any) => b.asset_type === 'native')?.balance || '0';
+        setAccountStatus({
+          loading: false,
+          exists: true,
+          balance: xlmBalance
+        });
+      } else {
+        setAccountStatus({
+          loading: false,
+          exists: false
+        });
+      }
+    } catch (error: any) {
+      setAccountStatus({
+        loading: false,
+        exists: false,
+        error: error.message
+      });
+    }
+  };
+
+  // Create transaction for approval
+  const createApprovalTransaction = async (
+    tokenAddress: string,
+    spenderAddress: string,
+    amount: string,
+    userAddress: string
+  ) => {
+    const account = await server.getAccount(userAddress);
+    const contract = new Contract(tokenAddress);
+
+    const operation = contract.call(
+      "approve",
+      nativeToScVal(BigInt(amount), { type: "u128" }),
+      nativeToScVal(spenderAddress, { type: "address" }),
+      nativeToScVal(userAddress, { type: "address" })
+    );
+
+    const transaction = new TransactionBuilder(account, {
+      fee: "100000000",
+      networkPassphrase: networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(300)
+      .build();
+
+    return transaction;
+  };
+
+  // Create transaction for deposit
+  const createDepositTransaction = async (
+    tokenAddress: string,
+    amount: string,
+    userAddress: string
+  ) => {
+    const account = await server.getAccount(userAddress);
+    const wrappedContract = new Contract(WRAPPED_TOKEN_CONTRACT_ADDRESS);
+
+    const operation = wrappedContract.call(
+      "deposit",
+      nativeToScVal(tokenAddress, { type: "address" }),
+      nativeToScVal(BigInt(amount), { type: "u128" }),
+      nativeToScVal(userAddress, { type: "address" })
+    );
+
+    const transaction = new TransactionBuilder(account, {
+      fee: "10000000",
+      networkPassphrase: networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(300)
+      .build();
+
+    return transaction;
+  };
+
+  // Wait for transaction confirmation
+  const waitForTransaction = async (hash: string, maxWaitTime = 30000) => {
+    const startTime = Date.now();
+    while (Date.now() - startTime < maxWaitTime) {
+      try {
+        const transaction = await server.getTransaction(hash);
+        if (transaction && transaction.successful) {
+          return true;
+        }
+      } catch (error) {
+        // Transaction might not be available yet, continue waiting
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    return false;
+  };
+
+  const handleApproveTokens = async () => {
+    if (!wrapForm.tokenAddress || !wrapForm.amount) {
+      setWrapError("Please fill in all fields");
+      return;
+    }
+
+    if (!userData?.stellarPublicAddress) {
+      setWrapError("Stellar address not available. Please connect your Stellar wallet.");
+      return;
+    }
+
+    setApproveLoading(true);
+    setWrapError(null);
+
+    try {
+      const userAddress = userData.stellarPublicAddress;
+      const amountInUnits = tokensToUnits(wrapForm.amount);
+
+      console.log("Creating approval transaction...");
+      console.log("User address:", userAddress);
+      console.log("Token address:", wrapForm.tokenAddress);
+      console.log("Amount in units:", amountInUnits);
+
+      // Double-check account exists before creating transaction
+      try {
+        const accountCheck = await server.getAccount(userAddress);
+        console.log("Account verified:", accountCheck.account_id);
+      } catch (accountError) {
+        console.error("Account verification failed:", accountError);
+        setWrapError("Account not found on network. Please ensure your account is funded with at least 1 XLM.");
+        return;
+      }
+
+      const approvalTx = await createApprovalTransaction(
+        wrapForm.tokenAddress,
+        WRAPPED_TOKEN_CONTRACT_ADDRESS,
+        amountInUnits,
+        userAddress
+      );
+
+      console.log("Signing approval transaction...");
+      
+      // Use the stellarKit from the WalletConnection component or direct Albedo if available
+      let signedTxXdr;
+      
+      if (stellarKit) {
+        try {
+          const signedApproval = await stellarKit.signTransaction(approvalTx.toXDR(), {
+            address: userAddress,
+            networkPassphrase: networkPassphrase,
+          });
+          signedTxXdr = signedApproval.signedTxXdr;
+        } catch (kitError) {
+          console.warn("Stellar Wallets Kit failed, trying direct Albedo...", kitError);
+          
+          // Fallback to direct Albedo connection
+          if (typeof window !== 'undefined' && (window as any).albedo) {
+            const albedoResult = await (window as any).albedo.tx({
+              xdr: approvalTx.toXDR(),
+              network: 'testnet',
+              submit: false
+            });
+            signedTxXdr = albedoResult.signed_envelope_xdr;
+          } else {
+            throw new Error("Neither Stellar Wallets Kit nor direct Albedo connection available");
+          }
+        }
+      } else {
+        // Direct Albedo fallback
+        if (typeof window !== 'undefined' && (window as any).albedo) {
+          console.log("Using direct Albedo connection...");
+          const albedoResult = await (window as any).albedo.tx({
+            xdr: approvalTx.toXDR(),
+            network: 'testnet',
+            submit: false
+          });
+          signedTxXdr = albedoResult.signed_envelope_xdr;
+        } else {
+          throw new Error("No wallet connection available");
+        }
+      }
+
+      console.log("Submitting approval transaction...");
+      const approvalTxFromXDR = StellarSdk.TransactionBuilder.fromXDR(signedTxXdr, networkPassphrase);
+      const approvalResponse = await server.sendTransaction(approvalTxFromXDR);
+      
+      console.log("Approval response:", approvalResponse);
+      
+      if (approvalResponse.status === 'ERROR') {
+        const resultCodes = approvalResponse.extras?.result_codes;
+        console.error("Transaction failed with codes:", resultCodes);
+        throw new Error(`Transaction failed: ${resultCodes?.transaction || resultCodes?.operations?.[0] || 'Unknown error'}`);
+      }
+
+      console.log("Approval submitted:", approvalResponse.hash);
+
+      // Wait for transaction confirmation
+      console.log("Waiting for approval confirmation...");
+      const confirmed = await waitForTransaction(approvalResponse.hash);
+      
+      if (!confirmed) {
+        console.warn("Approval transaction not confirmed within timeout, but proceeding...");
+      }
+
+      setTransactionHashes(prev => ({ ...prev, approveHash: approvalResponse.hash }));
+      setWrapStep('approved');
+
+      // Refresh account status after successful transaction
+      setTimeout(() => {
+        checkUserAccountStatus();
+      }, 1000);
+
+    } catch (error: any) {
+      console.error("Approval failed:", error);
+      
+      if (error.message?.includes("User declined") || error.message?.includes("User rejected") || error.message?.includes("rejected")) {
+        setWrapError("Transaction was cancelled by user.");
+      } else if (error.message?.includes("op_underfunded")) {
+        setWrapError("Insufficient XLM balance for transaction fees.");
+      } else if (error.message?.includes("op_no_account") || error.message?.includes("Account not found")) {
+        setWrapError("Account not found. Please ensure your Stellar account is funded with at least 1 XLM.");
+      } else if (error.message?.includes("not connected")) {
+        setWrapError("Wallet connection issue. Please disconnect and reconnect your Albedo wallet.");
+      } else if (error.message?.includes("Transaction failed")) {
+        setWrapError(error.message);
+      } else {
+        setWrapError(`Approval failed: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setApproveLoading(false);
+    }
+  };
+
+  const handleWrapTokens = async () => {
+    if (!userData?.stellarPublicAddress) {
+      setWrapError("Wallet not properly connected.");
+      return;
+    }
+
+    setWrapLoading(true);
+    setWrapError(null);
+
+    try {
+      const userAddress = userData.stellarPublicAddress;
+      const amountInUnits = tokensToUnits(wrapForm.amount);
+
+      console.log("Creating deposit transaction...");
+      const depositTx = await createDepositTransaction(
+        wrapForm.tokenAddress,
+        amountInUnits,
+        userAddress
+      );
+
+      console.log("Signing deposit transaction...");
+      
+      // Use the same wallet connection approach as approval
+      let signedTxXdr;
+      
+      if (stellarKit) {
+        try {
+          const signedDeposit = await stellarKit.signTransaction(depositTx.toXDR(), {
+            address: userAddress,
+            networkPassphrase: networkPassphrase,
+          });
+          signedTxXdr = signedDeposit.signedTxXdr;
+        } catch (kitError) {
+          console.warn("Stellar Wallets Kit failed, trying direct Albedo...", kitError);
+          
+          // Fallback to direct Albedo connection
+          if (typeof window !== 'undefined' && (window as any).albedo) {
+            const albedoResult = await (window as any).albedo.tx({
+              xdr: depositTx.toXDR(),
+              network: 'testnet',
+              submit: false
+            });
+            signedTxXdr = albedoResult.signed_envelope_xdr;
+          } else {
+            throw new Error("Neither Stellar Wallets Kit nor direct Albedo connection available");
+          }
+        }
+      } else {
+        // Direct Albedo fallback
+        if (typeof window !== 'undefined' && (window as any).albedo) {
+          console.log("Using direct Albedo connection...");
+          const albedoResult = await (window as any).albedo.tx({
+            xdr: depositTx.toXDR(),
+            network: 'testnet',
+            submit: false
+          });
+          signedTxXdr = albedoResult.signed_envelope_xdr;
+        } else {
+          throw new Error("No wallet connection available");
+        }
+      }
+
+      console.log("Submitting deposit transaction...");
+      const depositTxFromXDR = StellarSdk.TransactionBuilder.fromXDR(signedTxXdr, networkPassphrase);
+      const depositResponse = await server.sendTransaction(depositTxFromXDR);
+
+      if (depositResponse.status === 'ERROR') {
+        const resultCodes = depositResponse.extras?.result_codes;
+        console.error("Transaction failed with codes:", resultCodes);
+        throw new Error(`Transaction failed: ${resultCodes?.transaction || resultCodes?.operations?.[0] || 'Unknown error'}`);
+      }
+
+      console.log("Deposit submitted:", depositResponse.hash);
+
+      setTransactionHashes(prev => ({ ...prev, depositHash: depositResponse.hash }));
+      setWrapStep('completed');
+
+    } catch (error: any) {
+      console.error("Wrap tokens failed:", error);
+      
+      if (error.message?.includes("User declined") || error.message?.includes("User rejected") || error.message?.includes("rejected")) {
+        setWrapError("Transaction was cancelled by user.");
+      } else if (error.message?.includes("op_underfunded")) {
+        setWrapError("Insufficient XLM balance for transaction fees.");
+      } else if (error.message?.includes("not connected")) {
+        setWrapError("Wallet connection issue. Please disconnect and reconnect your Albedo wallet.");
+      } else if (error.message?.includes("Transaction failed")) {
+        setWrapError(error.message);
+      } else {
+        setWrapError(`Wrap failed: ${error.message || 'Unknown error'}`);
+      }
+    } finally {
+      setWrapLoading(false);
+    }
+  };
+
+  const resetWrapDialog = () => {
+    setWrapForm({ tokenAddress: "", amount: "" });
+    setWrapError(null);
+    setWrapStep('initial');
+    setTransactionHashes({});
+    setApproveLoading(false);
+    setWrapLoading(false);
+    setAccountStatus(null);
+  };
+
+  // Check if user can wrap tokens
+  const canWrapTokens = userData?.stellarPublicAddress && (userData?.stellarPrivateAddress || hasStellarConnection);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -351,13 +785,16 @@ export default function DashboardPage() {
                       <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {userData?.ethPublicAddress || "Connect wallet to see"}
                       </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
+                      {userData?.ethPublicAddress && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-white flex-shrink-0"
+                          onClick={() => copyToClipboard(userData.ethPublicAddress)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -384,13 +821,16 @@ export default function DashboardPage() {
                             "Connect wallet to see"
                           : "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"}
                       </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
+                      {userData?.ethPrivateAddress && showPrivateKeys && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-white flex-shrink-0"
+                          onClick={() => copyToClipboard(userData.ethPrivateAddress)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -430,13 +870,16 @@ export default function DashboardPage() {
                         {userData?.stellarPublicAddress ||
                           "Connect wallet to see"}
                       </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
+                      {userData?.stellarPublicAddress && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-white flex-shrink-0"
+                          onClick={() => copyToClipboard(userData.stellarPublicAddress)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -460,21 +903,342 @@ export default function DashboardPage() {
                       <code className="text-white text-sm font-mono truncate min-w-0 flex-1">
                         {showPrivateKeys
                           ? userData?.stellarPrivateAddress ||
-                            "Connect wallet to see"
+                            "Secured by wallet"
                           : "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••"}
                       </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-400 hover:text-white flex-shrink-0"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </Button>
+                      {userData?.stellarPrivateAddress && showPrivateKeys && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-400 hover:text-white flex-shrink-0"
+                          onClick={() => copyToClipboard(userData.stellarPrivateAddress)}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
 
                   <div className="pt-4 border-t border-white/10">
-                    <p className="text-gray-400 text-sm mb-2">Token Balances</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-gray-400 text-sm">Token Balances</p>
+                      {canWrapTokens && (
+                        <Dialog open={showWrapDialog} onOpenChange={(open) => {
+                          setShowWrapDialog(open);
+                          if (!open) resetWrapDialog();
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              className="bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-xs"
+                            >
+                              <Coins className="w-3 h-3 mr-1" />
+                              Wrap Tokens
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="bg-slate-900 border-white/10 text-white max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>Wrap Mock Tokens</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                              {/* Account Status Check */}
+                              {accountStatus && (
+                                <div className={`border rounded p-3 ${
+                                  accountStatus.loading 
+                                    ? "border-gray-500/30 bg-gray-500/10" 
+                                    : accountStatus.exists 
+                                    ? "border-green-500/30 bg-green-500/10" 
+                                    : "border-red-500/30 bg-red-500/10"
+                                }`}>
+                                  <div className="text-sm space-y-1">
+                                    <div className="font-medium flex items-center justify-between">
+                                      <div className="flex items-center">
+                                        {accountStatus.loading ? (
+                                          <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            <span className="text-gray-400">Checking Account Status...</span>
+                                          </>
+                                        ) : accountStatus.exists ? (
+                                          <>
+                                            <CheckCircle className="w-4 h-4 mr-2 text-green-400" />
+                                            <span className="text-green-400">Account Found</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <XCircle className="w-4 h-4 mr-2 text-red-400" />
+                                            <span className="text-red-400">Account Status Check Failed</span>
+                                          </>
+                                        )}
+                                      </div>
+                                      <Button
+                                        onClick={checkUserAccountStatus}
+                                        disabled={accountStatus.loading}
+                                        size="sm"
+                                        variant="outline"
+                                        className="border-white/20 text-white hover:bg-white/10 text-xs h-6 px-2"
+                                      >
+                                        {accountStatus.loading ? (
+                                          <Loader2 className="w-3 h-3" />
+                                        ) : (
+                                          "Refresh"
+                                        )}
+                                      </Button>
+                                    </div>
+                                    {accountStatus.exists && accountStatus.balance && (
+                                      <div className="text-green-400 text-xs">
+                                        XLM Balance: {parseFloat(accountStatus.balance).toFixed(4)} XLM
+                                      </div>
+                                    )}
+                                    {!accountStatus.exists && !accountStatus.loading && (
+                                      <div className="space-y-2">
+                                        <div className="text-yellow-400 text-xs">
+                                          ⚠️ Automatic check failed, but you can still proceed if your account is funded
+                                        </div>
+                                        <div className="flex space-x-2">
+                                          <Button
+                                            onClick={() => window.open("https://laboratory.stellar.org/#account-creator?network=test", "_blank")}
+                                            size="sm"
+                                            variant="outline"
+                                            className="border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs h-6"
+                                          >
+                                            <ExternalLink className="w-3 h-3 mr-1" />
+                                            Fund Account
+                                          </Button>
+                                          <Button
+                                            onClick={() => window.open(`https://stellar.expert/explorer/testnet/account/${userData?.stellarPublicAddress}`, "_blank")}
+                                            size="sm"
+                                            variant="outline"
+                                            className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 text-xs h-6"
+                                          >
+                                            <ExternalLink className="w-3 h-3 mr-1" />
+                                            Check Explorer
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Process Steps Indicator */}
+                              <div className="bg-blue-500/10 border border-blue-500/30 rounded p-3">
+                                <div className="text-blue-400 text-sm space-y-2">
+                                  <div className="font-medium">📝 Two-Step Process:</div>
+                                  <div className={`flex items-center space-x-2 ${wrapStep === 'initial' ? 'text-blue-400' : wrapStep === 'approved' ? 'text-green-400' : 'text-gray-400'}`}>
+                                    {wrapStep === 'approved' || wrapStep === 'completed' ? <CheckCircle className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border-2 border-current"></div>}
+                                    <span>1. Approve spending of mock tokens</span>
+                                  </div>
+                                  <div className={`flex items-center space-x-2 ${wrapStep === 'completed' ? 'text-green-400' : wrapStep === 'approved' ? 'text-blue-400' : 'text-gray-400'}`}>
+                                    {wrapStep === 'completed' ? <CheckCircle className="w-4 h-4" /> : <div className="w-4 h-4 rounded-full border-2 border-current"></div>}
+                                    <span>2. Deposit tokens to get wrapped tokens</span>
+                                  </div>
+                                  {accountStatus?.exists && (
+                                    <div className="pt-1">
+                                      <Button
+                                        onClick={() => window.open("https://laboratory.stellar.org/#account-creator?network=test", "_blank")}
+                                        size="sm"
+                                        variant="outline"
+                                        className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 text-xs"
+                                      >
+                                        <ExternalLink className="w-3 h-3 mr-1" />
+                                        View on Stellar Laboratory
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="token-address" className="text-white">
+                                    Mock Token Contract Address
+                                  </Label>
+                                  <Input
+                                    id="token-address"
+                                    type="text"
+                                    placeholder="Enter mock token contract address"
+                                    value={wrapForm.tokenAddress}
+                                    onChange={(e) => setWrapForm(prev => ({ ...prev, tokenAddress: e.target.value }))}
+                                    className="bg-white/5 border-white/10 text-white font-mono text-sm"
+                                    disabled={approveLoading || wrapLoading}
+                                  />
+                                  <p className="text-xs text-gray-500">
+                                    Example: CCNITQBI3QTUQU5P55SJKBWCZDKTBB5FADYGZQGGZCAR5D7KGNT63O55
+                                  </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label htmlFor="amount" className="text-white">
+                                    Amount (tokens)
+                                  </Label>
+                                  <Input
+                                    id="amount"
+                                    type="number"
+                                    placeholder="Enter amount of tokens"
+                                    value={wrapForm.amount}
+                                    onChange={(e) => setWrapForm(prev => ({ ...prev, amount: e.target.value }))}
+                                    className="bg-white/5 border-white/10 text-white"
+                                    disabled={approveLoading || wrapLoading}
+                                    min="0"
+                                    step="0.01"
+                                  />
+                                  <p className="text-xs text-gray-500">
+                                    Enter amount in normal token units (e.g., 100 for 100 tokens)
+                                  </p>
+                                </div>
+                              </div>
+
+                              {wrapError && (
+                                <Alert className="bg-red-500/10 border-red-500/30 text-red-400">
+                                  <AlertCircle className="h-4 w-4" />
+                                  <AlertDescription className="text-sm space-y-2">
+                                    <div>{wrapError}</div>
+                                    {wrapError.includes("Account not found") && (
+                                      <div className="pt-2">
+                                        <Button
+                                          onClick={() => window.open("https://laboratory.stellar.org/#account-creator?network=test", "_blank")}
+                                          size="sm"
+                                          variant="outline"
+                                          className="border-red-500/30 text-red-400 hover:bg-red-500/10 text-xs"
+                                        >
+                                          <ExternalLink className="w-3 h-3 mr-1" />
+                                          Fund Account on Stellar Laboratory
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </AlertDescription>
+                                </Alert>
+                              )}
+
+                              {/* Transaction Results */}
+                              {(transactionHashes.approveHash || transactionHashes.depositHash) && (
+                                <Alert className="bg-green-500/10 border-green-500/30 text-green-400">
+                                  <CheckCircle className="h-4 w-4" />
+                                  <AlertDescription className="text-sm space-y-3">
+                                    <div className="font-medium">
+                                      {wrapStep === 'completed' ? '✅ Tokens wrapped successfully!' : '✅ Approval successful!'}
+                                    </div>
+                                    {transactionHashes.approveHash && (
+                                      <div className="space-y-1">
+                                        <div className="text-xs text-gray-400">Approval Transaction:</div>
+                                        <div className="bg-white/5 p-2 rounded text-xs font-mono break-all">
+                                          {transactionHashes.approveHash}
+                                        </div>
+                                        <Button
+                                          onClick={() => window.open(`https://stellar.expert/explorer/testnet/tx/${transactionHashes.approveHash}`, "_blank")}
+                                          size="sm"
+                                          variant="outline"
+                                          className="border-green-500/30 text-green-400 hover:bg-green-500/10 text-xs"
+                                        >
+                                          <ExternalLink className="w-3 h-3 mr-1" />
+                                          View in Explorer
+                                        </Button>
+                                      </div>
+                                    )}
+                                    {transactionHashes.depositHash && (
+                                      <div className="space-y-1">
+                                        <div className="text-xs text-gray-400">Deposit Transaction:</div>
+                                        <div className="bg-white/5 p-2 rounded text-xs font-mono break-all">
+                                          {transactionHashes.depositHash}
+                                        </div>
+                                        <Button
+                                          onClick={() => window.open(`https://stellar.expert/explorer/testnet/tx/${transactionHashes.depositHash}`, "_blank")}
+                                          size="sm"
+                                          variant="outline"
+                                          className="border-green-500/30 text-green-400 hover:bg-green-500/10 text-xs"
+                                        >
+                                          <ExternalLink className="w-3 h-3 mr-1" />
+                                          View in Explorer
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </AlertDescription>
+                                </Alert>
+                              )}
+
+                              <div className="space-y-2">
+                                <div className="flex space-x-2">
+                                  {wrapStep === 'initial' && (
+                                    <Button
+                                      onClick={handleApproveTokens}
+                                      disabled={approveLoading || !wrapForm.tokenAddress.trim() || !wrapForm.amount.trim()}
+                                      className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
+                                    >
+                                      {approveLoading ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Approving...
+                                        </>
+                                      ) : (
+                                        "Approve Tokens"
+                                      )}
+                                    </Button>
+                                  )}
+                                  
+                                  {wrapStep === 'approved' && (
+                                    <Button
+                                      onClick={handleWrapTokens}
+                                      disabled={wrapLoading}
+                                      className="flex-1 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700"
+                                    >
+                                      {wrapLoading ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Wrapping...
+                                        </>
+                                      ) : (
+                                        "Wrap Tokens"
+                                      )}
+                                    </Button>
+                                  )}
+
+                                  {wrapStep === 'completed' && (
+                                    <Button
+                                      onClick={resetWrapDialog}
+                                      className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+                                    >
+                                      Wrap More Tokens
+                                    </Button>
+                                  )}
+
+                                  <Button
+                                    onClick={() => setShowWrapDialog(false)}
+                                    variant="outline"
+                                    className="border-white/20 text-white hover:bg-white/10"
+                                    disabled={approveLoading || wrapLoading}
+                                  >
+                                    {wrapStep === 'completed' ? 'Close' : 'Cancel'}
+                                  </Button>
+                                </div>
+                                
+                              {/* Debug info when account check fails */}
+                                {!accountStatus?.exists && !accountStatus?.loading && wrapForm.tokenAddress && wrapForm.amount && wrapStep === 'initial' && (
+                                  <div className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/30 rounded p-2">
+                                    <div>⚠️ Account status check failed, but you can still proceed.</div>
+                                    <div className="mt-1 text-gray-400">
+                                      Debug: Address={userData?.stellarPublicAddress?.slice(0,8)}..., 
+                                      Token={wrapForm.tokenAddress.slice(0,8)}..., 
+                                      Amount={wrapForm.amount}
+                                    </div>
+                                    <div className="mt-1 text-gray-400">
+                                      Kit: {stellarKit ? 'Initialized' : 'Not initialized'}, 
+                                      Albedo: {typeof window !== 'undefined' && (window as any).albedo ? 'Available' : 'Not available'}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Button is disabled debug */}
+                                {wrapStep === 'initial' && (!wrapForm.tokenAddress.trim() || !wrapForm.amount.trim()) && (
+                                  <div className="text-xs text-gray-400 bg-gray-500/10 border border-gray-500/30 rounded p-2">
+                                    Button disabled: {!wrapForm.tokenAddress.trim() ? 'Missing token address' : ''} {!wrapForm.amount.trim() ? 'Missing amount' : ''}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      )}
+                    </div>
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span className="text-white">XLM</span>
