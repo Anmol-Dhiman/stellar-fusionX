@@ -16,6 +16,16 @@ interface UserContextType {
   setUserData: (data: UserData | null) => void;
   isConnected: boolean;
   setIsConnected: (connected: boolean) => void;
+  hasEthConnection: boolean;
+  hasStellarConnection: boolean;
+  updateEthConnection: (
+    ethPublicAddress: string,
+    ethPrivateAddress?: string
+  ) => void;
+  updateStellarConnection: (
+    stellarPublicAddress: string,
+    stellarPrivateAddress?: string
+  ) => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
@@ -36,9 +46,54 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Helper to check if user has ETH connection
+  const hasEthConnection = !!userData?.ethPublicAddress;
+
+  // Helper to check if user has Stellar connection
+  const hasStellarConnection = !!userData?.stellarPublicAddress;
+
+  // Update ETH connection while preserving other data
+  const updateEthConnection = useCallback(
+    (ethPublicAddress: string, ethPrivateAddress: string = "") => {
+      setUserDataState((prevData) => ({
+        email: prevData?.email || "",
+        ethPublicAddress,
+        ethPrivateAddress,
+        stellarPublicAddress: prevData?.stellarPublicAddress || "",
+        stellarPrivateAddress: prevData?.stellarPrivateAddress || "",
+      }));
+      setIsConnectedState(true);
+    },
+    []
+  );
+
+  // Update Stellar connection while preserving other data
+  const updateStellarConnection = useCallback(
+    (stellarPublicAddress: string, stellarPrivateAddress: string = "") => {
+      setUserDataState((prevData) => ({
+        email: prevData?.email || "",
+        ethPublicAddress: prevData?.ethPublicAddress || "",
+        ethPrivateAddress: prevData?.ethPrivateAddress || "",
+        stellarPublicAddress,
+        stellarPrivateAddress,
+      }));
+      setIsConnectedState(true);
+    },
+    []
+  );
+
   return (
     <UserContext.Provider
-      value={{ userData, setUserData, isConnected, setIsConnected }}
+      value={{
+        userData,
+        setUserData,
+        isConnected,
+        setIsConnected,
+        hasEthConnection,
+        hasStellarConnection,
+        updateEthConnection,
+        updateStellarConnection,
+      }}
     >
       {children}
     </UserContext.Provider>
